@@ -59,16 +59,21 @@ class LDA:
         self.K = corpus.num_topic
         self.V = corpus.num_words
         self.M = corpus.num_doc
-        self.alpha = (50 / self.K) * np.ones(self.K)
-        self.beta = np.ones((self.K, self.V)) / self.V
+        # self.alpha = (50 / self.K) * np.ones(self.K)
+        self.alpha = np.random.random((self.K,))
+        self.beta = np.random.random((self.K, self.V))
+        self.beta /= self.beta.sum(axis=1).reshape((-1, 1))
+        # self.beta = np.ones((self.K, self.V)) / self.V
         self.gamma = np.zeros((self.M, self.K))
 
         self.phi = []
         for d in range(self.M):
             Nd = len(self.data[d])
             # self.gamma += [self.alpha + (Nd / self.K) * np.ones((self.K,))]
-            self.gamma[d] = self.alpha + (Nd / self.K) * np.ones((self.K,))
-            self.phi += [np.ones((Nd, self.K)) / self.K]
+            phi = np.random.random((Nd, self.K))
+            phi /= phi.sum(axis=1).reshape((-1, 1))
+            self.phi += [phi]
+            self.gamma[d] = self.alpha + phi.sum(axis=0)
 
     # Lower bound of log-likelihood for given document
     def L(self, doc: int):
@@ -120,7 +125,6 @@ class LDA:
         num_iter = 0
         converged = False
         new_alpha = self.alpha
-        print(f"Before Optimize: a = {self.alpha}")
 
         while (not converged) and (num_iter < max_iter):
             # TODO: check this equation
@@ -143,7 +147,6 @@ class LDA:
             num_iter += 1
 
         self.alpha = new_alpha
-        print(f"After Optimize: a = {self.alpha}")
 
     def EStep(self, max_iter=100):
         if self.verbose:
