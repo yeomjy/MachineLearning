@@ -60,7 +60,7 @@ class LDA:
         self.V = corpus.num_words
         self.M = corpus.num_doc
         self.alpha = (50 / self.K) * np.ones(self.K)
-        self.beta = np.ones((self.K, self.V)) / self.K
+        self.beta = np.ones((self.K, self.V)) / self.V
         self.gamma = np.zeros((self.M, self.K))
 
         self.phi = []
@@ -73,7 +73,7 @@ class LDA:
     # Lower bound of log-likelihood for given document
     def L(self, doc: int):
         # To use numpy's vectorization, we used np.sum and np.einsum
-        Nd = len(self.data[doc])
+        # TODO: check this equation
         alpha_term = (
             loggamma(self.alpha.sum())
             - np.sum(loggamma(self.alpha))
@@ -104,7 +104,7 @@ class LDA:
 
         return alpha_term + ztheta_term + beta_term + theta_term + z_term
 
-    def newton_rhapson(self):
+    def newton_rhapson(self, max_iter=100):
         # Phi = digamma = (log Gamma)'
         # Phi'(x) = polygamma(1, x)
 
@@ -117,20 +117,33 @@ class LDA:
 
         # Gradient is
         # dL / da[i] = M(phi(sum j=1 to k a[j]) - Phi(a[i])) + sum d=1 to M (Phi(gamma[d, i]) - Phi(sum j=1 to k gamma[d, j]))
+        num_iter = 0
+        converged = False
+        new_alpha = self.alpha
+        print(f"Before Optimize: a = {self.alpha}")
 
-        g = self.M * (
-            digamma(self.alpha.sum()) * np.ones(self.alpha.shape) - digamma(self.alpha)
-        ) + np.sum(
-            digamma(self.gamma) - digamma(self.gamma.sum(axis=1).reshape((-1, 1))),
-            axis=0,
-        )
+        while (not converged) and (num_iter < max_iter):
+            # TODO: check this equation
+            g = self.M * (
+                digamma(self.alpha.sum()) * np.ones(self.alpha.shape)
+                - digamma(self.alpha)
+            ) + np.sum(
+                digamma(self.gamma) - digamma(self.gamma.sum(axis=1).reshape((-1, 1))),
+                axis=0,
+            )
 
-        h = self.M * polygamma(1, self.alpha)
-        z = -polygamma(1, self.alpha.sum())
+            h = self.M * polygamma(1, self.alpha)
+            z = -polygamma(1, self.alpha.sum())
 
-        c = (np.sum(g / h)) / (1 / z + (1 / h).sum())
-        delta = (g - c) / h
-        self.alpha -= delta
+            c = (np.sum(g / h)) / (1 / z + (1 / h).sum())
+            delta = (g - c) / h
+            new_alpha = self.alpha - delta
+
+            converged = np.linalg.norm(new_alpha - self.alpha) < 1e-4
+            num_iter += 1
+
+        self.alpha = new_alpha
+        print(f"After Optimize: a = {self.alpha}")
 
     def EStep(self, max_iter=100):
         if self.verbose:
@@ -141,9 +154,14 @@ class LDA:
             num_iter = 0
             word_list = np.array(self.data[d], dtype=int) - 1
             beta_w = self.beta[:, word_list]
-            Nd = len(self.data[d])
             while (not converged) and (num_iter < max_iter):
-                phi_new = (beta_w * np.exp(digamma(self.gamma[d])).T.reshape((-1, 1))).T
+                # TODO: check this equation
+                phi_new = (
+                    beta_w
+                    * np.exp(
+                        digamma(self.gamma[d]) - digamma(self.gamma[d].sum())
+                    ).T.reshape((-1, 1))
+                ).T
                 phi_new /= phi_new.sum(axis=1).reshape((-1, 1))
                 gamma_new = self.alpha + phi_new.sum(axis=0)
 
@@ -154,13 +172,9 @@ class LDA:
                 self.phi[d] = phi_new
                 self.gamma[d] = gamma_new
                 num_iter += 1
-        #     if self.verbose:
-        #         print(
-        #             f"E step for document {d}/{self.M}: {num_iter + 1}/{max_iter}, converged?: {converged}, time: {end - start}"
-        #         )
         end = time.time()
         if self.verbose:
-            print(f"E step Ended: time: {end-start}")
+            print(f"E step Ended: time: {end-start:.05}")
 
     def MStep(self, max_iter=100):
         start = time.time()
@@ -168,17 +182,17 @@ class LDA:
             print(f"M step start")
         beta_new = np.zeros((self.K, self.V))
         for d in range(self.M):
-            Nd = len(self.data[d])
+            # TODO: check this equation
             word_list = np.array(self.data[d], dtype=int) - 1
             beta_new[:, word_list] += self.phi[d].T
 
-        beta_new /= beta_new.sum(axis=0)
+        beta_new /= beta_new.sum(axis=1).reshape((-1, 1))
         self.beta = beta_new
 
         self.newton_rhapson()
         end = time.time()
         if self.verbose:
-            print(f"M step end: {end-start} secs")
+            print(f"M step Ended: time: {end-start:.05} secs")
 
     def train(self, max_iter=100):
 
@@ -202,7 +216,7 @@ class LDA:
             end = time.time()
             if self.verbose:
                 print(
-                    f"Log Likelihood Lower Bound After step {num_iter + 1}: {lbound_new}, converged?: {converged}, time for computing L: {start -end}"
+                    f"Log Likelihood Lower Bound After step {num_iter + 1}: {lbound_new}, converged?: {converged}, time for computing L: {end-start:.05} secs"
                 )
             num_iter += 1
 
