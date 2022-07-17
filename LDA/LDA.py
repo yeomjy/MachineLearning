@@ -197,7 +197,7 @@ class LDA:
         if self.verbose:
             print(f"M step Ended: time: {end-start:.05} secs")
 
-    def train(self, max_iter=100):
+    def train_variational_em(self, max_iter=100):
 
         converged = False
         num_iter = 0
@@ -351,6 +351,7 @@ if __name__ == "__main__":
     # doc = list of words
 
     # alpha, beta, phi_list, gamma_list = lda_em(K, V, corpus)
-    corpus = Corpus(Path("./20newsgroup"))
+    base_dir = Path().resolve().parent
+    corpus = Corpus(base_dir / "data" / "20newsgroup")
     lda_model = LDA(corpus, verbose=True)
-    lda_model.train()
+    lda_model.train_variational_em()
