@@ -129,21 +129,20 @@ class LDA:
         while (not converged) and (num_iter < max_iter):
             # TODO: check this equation
             g = self.M * (
-                digamma(self.alpha.sum()) * np.ones(self.alpha.shape)
-                - digamma(self.alpha)
+                digamma(new_alpha.sum()) * np.ones(new_alpha.shape) - digamma(new_alpha)
             ) + np.sum(
                 digamma(self.gamma) - digamma(self.gamma.sum(axis=1).reshape((-1, 1))),
                 axis=0,
             )
 
-            h = self.M * polygamma(1, self.alpha)
+            h = self.M * polygamma(1, new_alpha)
             z = -polygamma(1, self.alpha.sum())
 
             c = (np.sum(g / h)) / (1 / z + (1 / h).sum())
             delta = (g - c) / h
-            new_alpha = self.alpha - delta
+            new_alpha = new_alpha - delta
 
-            converged = np.linalg.norm(new_alpha - self.alpha) < 1e-4
+            converged = np.linalg.norm(delta) < 1e-4
             num_iter += 1
 
         self.alpha = new_alpha
