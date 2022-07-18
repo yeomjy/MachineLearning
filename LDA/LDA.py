@@ -6,7 +6,7 @@ import time
 
 
 class Corpus:
-    def __init__(self, data_path=PathLike | str):
+    def __init__(self, data_path):
         # corpus = docIdx: document
         # document: list of word index
         self.corpus = {}
@@ -53,27 +53,35 @@ class Corpus:
 
 
 class LDA:
-    def __init__(self, corpus: Corpus, verbose: bool = False):
+    def __init__(
+        self, corpus: Corpus, verbose: bool = False, random_init: bool = False
+    ):
         self.data = corpus
+        self.random_init = random_init
         self.verbose = verbose
         self.K = corpus.num_topic
         self.V = corpus.num_words
         self.M = corpus.num_doc
-        # self.alpha = (50 / self.K) * np.ones(self.K)
-        self.alpha = np.random.random((self.K,))
-        self.beta = np.random.random((self.K, self.V))
-        self.beta /= self.beta.sum(axis=1).reshape((-1, 1))
-        # self.beta = np.ones((self.K, self.V)) / self.V
+        if random_init:
+            self.alpha = np.random.random((self.K,))
+            self.beta = np.random.random((self.K, self.V))
+            self.beta /= self.beta.sum(axis=1).reshape((-1, 1))
+        else:
+            self.alpha = (50 / self.K) * np.ones(self.K)
+            self.beta = np.ones((self.K, self.V)) / self.V
         self.gamma = np.zeros((self.M, self.K))
 
         self.phi = []
         for d in range(self.M):
             Nd = len(self.data[d])
-            # self.gamma += [self.alpha + (Nd / self.K) * np.ones((self.K,))]
-            phi = np.random.random((Nd, self.K))
-            phi /= phi.sum(axis=1).reshape((-1, 1))
-            self.phi += [phi]
-            self.gamma[d] = self.alpha + phi.sum(axis=0)
+            if self.random_init:
+                phi = np.random.random((Nd, self.K))
+                phi /= phi.sum(axis=1).reshape((-1, 1))
+                self.phi += [phi]
+                self.gamma[d] = self.alpha + phi.sum(axis=0)
+            else:
+                self.gamma[d] = self.alpha + (Nd / self.K) * np.ones((self.K,))
+                self.phi += [np.ones((Nd, self.K)) / self.K]
 
     # Lower bound of log-likelihood for given document
     def L(self, doc: int):
@@ -125,25 +133,47 @@ class LDA:
         num_iter = 0
         converged = False
         new_alpha = self.alpha
+        BATCH_SIZE = 64
 
-        while (not converged) and (num_iter < max_iter):
-            # TODO: check this equation
-            g = self.M * (
-                digamma(new_alpha.sum()) * np.ones(new_alpha.shape) - digamma(new_alpha)
-            ) + np.sum(
-                digamma(self.gamma) - digamma(self.gamma.sum(axis=1).reshape((-1, 1))),
-                axis=0,
-            )
+        # MiniBatch Stochastic Gradient Descent
 
-            h = self.M * polygamma(1, new_alpha)
-            z = -polygamma(1, self.alpha.sum())
+        for e in range(max_iter):
+            indices = np.arange(self.M)
+            np.random.shuffle(indices)
 
-            c = (np.sum(g / h)) / (1 / z + (1 / h).sum())
-            delta = (g - c) / h
-            new_alpha = new_alpha - delta
+            for i in range(self.M // BATCH_SIZE):
+                idx = indices[i : i + BATCH_SIZE]
 
-            converged = np.linalg.norm(delta) < 1e-4
-            num_iter += 1
+                g = self.M * (
+                    digamma(new_alpha.sum()) * np.ones(new_alpha.shape)
+                    - digamma(new_alpha)
+                ) + np.sum(
+                    digamma(self.gamma[idx, :])
+                    - digamma(self.gamma[idx, :].sum(axis=1).reshape((-1, 1))),
+                    axis=0,
+                )
+                new_alpha = new_alpha - 1e-4 * g
+
+        # newton_rhapson method
+
+        # while (not converged) and (num_iter < max_iter):
+        #     # TODO: check this equation
+        #     g = self.M * (
+        #         digamma(new_alpha.sum()) * np.ones(new_alpha.shape) - digamma(new_alpha)
+        #     ) + np.sum(
+        #         digamma(self.gamma) - digamma(self.gamma.sum(axis=1).reshape((-1, 1))),
+        #         axis=0,
+        #     )
+
+        #     h = self.M * polygamma(1, new_alpha)
+        #     z = -polygamma(1, self.alpha.sum())
+
+        #     c = (np.sum(g / h)) / (1 / z + (1 / h).sum())
+        #     delta = (g - c) / h
+        #     new_alpha = new_alpha - delta
+
+        #     converged = np.linalg.norm(g) < 1e-4
+        #     num_iter += 1
 
         self.alpha = new_alpha
 
@@ -213,12 +243,12 @@ class LDA:
             self.MStep()
 
             start = time.time()
-            lbound_new = L_vec(doc_idx).sum()
+            lbound_new = L_vec(doc_idx).mean()
             converged = np.abs(lbound - lbound_new) < 1e-4
             end = time.time()
             if self.verbose:
                 print(
-                    f"Log Likelihood Lower Bound After step {num_iter + 1}: {lbound_new}, converged?: {converged}, time for computing L: {end-start:.05} secs"
+                    f"Log Likelihood Lower Bound Mean After step {num_iter + 1}: {lbound_new}, converged?: {converged}, time for computing L: {end-start:.05} secs"
                 )
             num_iter += 1
 
@@ -230,5 +260,5 @@ if __name__ == "__main__":
 
     base_dir = Path().resolve().parent
     corpus = Corpus(base_dir / "data" / "20newsgroup")
-    lda_model = LDA(corpus, verbose=True)
+    lda_model = LDA(corpus, verbose=True, random_init=False)
     lda_model.train_variational_em()
